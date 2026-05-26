@@ -2,10 +2,11 @@ import os
 import requests
 from http.server import BaseHTTPRequestHandler
 
-# Disable the annoying console warning prints that occur when bypassing SSL verification
+# Turn off SSL connection warning text logs caused by DESCO's cert issues
 import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+# Pull environment definitions from Vercel core securely
 ACCOUNT_NUMBER = os.environ.get("DESCO_ACCOUNT")
 PHONE_ID = os.environ.get("PHONE_NUMBER_ID")
 TARGET_PHONE = os.environ.get("TARGET_MOBILE")
@@ -24,7 +25,7 @@ def fetch_desco_profile():
     }
     
     try:
-        # Added verify=False to bypass the strict local issuer certificate errors safely
+        # Bypassing strict SSL validation chains safely using verify=False
         response = requests.get(url, headers=headers, timeout=10, verify=False)
         if response.status_code == 200:
             return response.json()
@@ -32,22 +33,48 @@ def fetch_desco_profile():
         print(f"Error connecting to DESCO: {e}")
     return None
 
-def push_whatsapp_notification(text_content):
+def push_whatsapp_template_alert(acc, meter, bal, usage, date):
     if not all([PHONE_ID, WA_TOKEN, TARGET_PHONE]):
+        print("Missing WhatsApp connection credentials.")
         return
+
     url = f"https://graph.facebook.com/v25.0/{PHONE_ID}/messages"
-    headers = {"Authorization": f"Bearer {WA_TOKEN}", "Content-Type": "application/json"}
+    headers = {
+        "Authorization": f"Bearer {WA_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    
+    # Restructured payload mapping custom utility data to Meta parameters
     payload = {
         "messaging_product": "whatsapp",
         "recipient_type": "individual",
         "to": TARGET_PHONE,
-        "type": "text",
-        "text": {"preview_url": False, "body": text_content}
+        "type": "template",
+        "template": {
+            "name": "hello_world",
+            "language": {
+                "code": "en_US"
+            },
+            "components": [
+                {
+                    "type": "body",
+                    "parameters": [
+                        {"type": "text", "text": str(acc)},
+                        {"type": "text", "text": str(meter)},
+                        {"type": "text", "text": f"{bal} BDT"},
+                        {"type": "text", "text": f"{usage} kWh"},
+                        {"type": "text", "text": str(date)}
+                    ]
+                }
+            ]
+        }
     }
+    
     try:
-        requests.post(url, json=payload, headers=headers, timeout=6)
+        response = requests.post(url, json=payload, headers=headers, timeout=6)
+        print(f"Meta Gateway Log: {response.json()}")
     except Exception as e:
-        print(f"Failed to send to WhatsApp: {e}")
+        print(f"Failed to transmit WhatsApp template: {e}")
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -69,21 +96,14 @@ class handler(BaseHTTPRequestHandler):
             meter_id = meter_data.get("meterNo", "N/A")
             consumption = meter_data.get("currentMonthConsumption", "N/A")
             
-            msg = (
-                f"🔋 *DESCO Prepaid Update*\n\n"
-                f"• Account No: `{ACCOUNT_NUMBER}`\n"
-                f"• Meter Serial: `{meter_id}`\n"
-                f"• *Remaining Balance:* *{balance} BDT*\n"
-                f"• Current Month Usage: {consumption} kWh\n"
-                f"• Reading Date: _{reading_date}_"
-            )
+            # Fire structural parameters straight out
+            push_whatsapp_template_alert(ACCOUNT_NUMBER, meter_id, balance, consumption, reading_date)
         else:
-            msg = f"⚠️ *DESCO Extraction Failure*\nCould not retrieve live metrics for account {ACCOUNT_NUMBER}."
+            # Fallback values if the DESCO API experiences downtime
+            push_whatsapp_template_alert(ACCOUNT_NUMBER, "ERR", "FETCH_FAILED", "ERR", "Check Online")
             
-        push_whatsapp_notification(msg)
-        
         self.send_response(200)
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write(b"Automation cycle complete.")
+        self.wfile.write(b"Automation template processed.")
         return
