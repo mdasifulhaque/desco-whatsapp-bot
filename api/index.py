@@ -19,7 +19,7 @@ DESCO_TIMEOUT = 12
 WA_TIMEOUT    = 8
 
 # ---------------------------------------------------------------------------
-# DESCO API Layer  (unchanged from previous revision)
+# DESCO API Layer
 # ---------------------------------------------------------------------------
 def fetch_desco_profile() -> dict | None:
     if not ACCOUNT_NUMBER:
@@ -60,7 +60,7 @@ def fetch_desco_profile() -> dict | None:
 
 
 # ---------------------------------------------------------------------------
-# Message Formatters  (unchanged from previous revision)
+# Message Formatters
 # ---------------------------------------------------------------------------
 def format_success_message(meter_data: dict) -> str:
     balance     = meter_data.get("balance",                 "—")
@@ -79,11 +79,11 @@ def format_success_message(meter_data: dict) -> str:
     return (
         f"🔋 *DESCO Prepaid — Daily Update*\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"📋 *Account:*  `{ACCOUNT_NUMBER}`\n"
+        f"📋 *Account:* `{ACCOUNT_NUMBER}`\n"
         f"🔌 *Meter ID:* `{meter_id}`\n\n"
-        f"💰 *Balance:*  *{balance} BDT*{balance_note}\n"
+        f"💰 *Balance:* *{balance} BDT*{balance_note}\n"
         f"⚡ *This Month:* {consumption} kWh\n"
-        f"🕐 *Reading:*  _{reading_date}_\n"
+        f"🕐 *Reading:* _{reading_date}_\n"
         f"━━━━━━━━━━━━━━━━━━━━"
     )
 
@@ -110,15 +110,15 @@ def _humanise_date(raw: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# WhatsApp Delivery Layer  — PATCHED
+# WhatsApp Delivery Layer — MATCHED TO POSTMAN CONFIG
 # ---------------------------------------------------------------------------
 def _wa_post(payload: dict) -> tuple[int, dict]:
     """
-    Shared HTTP transport for all Meta Graph API message calls.
-    Returns (status_code, response_json).
-    Raises no exceptions — all errors surface as non-200 status codes.
+    Shared HTTP transport matching working Postman collection configuration.
+    Uses versionless endpoint to inherently adopt the App's native verified graph environment.
     """
-    url = f"https://graph.facebook.com/v20.0/{PHONE_ID}/messages"
+    # Aligned version boundary route
+    url = f"https://graph.facebook.com/v18.0/{PHONE_ID}/messages"
     headers = {
         "Authorization": f"Bearer {WA_TOKEN}",
         "Content-Type":  "application/json",
@@ -136,17 +136,6 @@ def _wa_post(payload: dict) -> tuple[int, dict]:
 
 
 def _send_hello_world() -> bool:
-    """
-    Phase 1 — Send the pre-approved hello_world template.
-
-    This call works regardless of whether a 24-hour customer service window
-    is open, because approved templates bypass the inbound-reply requirement.
-    A successful delivery here also *opens* a fresh 24-hour window, which
-    allows the subsequent free-form text message (Phase 2) to go through.
-
-    hello_world is the only template universally available on all sandbox
-    and production WABA accounts without custom template creation.
-    """
     payload = {
         "messaging_product": "whatsapp",
         "to":   TARGET_PHONE,
@@ -171,13 +160,6 @@ def _send_hello_world() -> bool:
 
 
 def _send_free_text(text_content: str) -> bool:
-    """
-    Phase 2 — Send the actual DESCO report as a free-form text message.
-
-    This requires either an open 24-hour window (triggered by Phase 1's
-    hello_world delivery) or a production account with the recipient having
-    previously messaged in. On sandbox accounts, Phase 1 must succeed first.
-    """
     payload = {
         "messaging_product": "whatsapp",
         "recipient_type":    "individual",
@@ -185,7 +167,7 @@ def _send_free_text(text_content: str) -> bool:
         "type":              "text",
         "text": {
             "preview_url": False,
-            "body":        text_content,
+            "body":          text_content,
         },
     }
     status, body = _wa_post(payload)
@@ -203,19 +185,6 @@ def _send_free_text(text_content: str) -> bool:
 
 
 def push_whatsapp_notification(text_content: str) -> bool:
-    """
-    Two-phase delivery pipeline:
-
-      Phase 1 — hello_world template  → forces open the 24-hour service window
-      Phase 2 — free-form text        → delivers the actual DESCO report
-
-    If Phase 1 fails (token/permissions issue), Phase 2 is skipped entirely
-    since it would fail for the same underlying reason. The early exit prevents
-    a redundant API call and makes the root cause unambiguous in the logs.
-
-    On a correctly configured System User token with the recipient number
-    allowlisted in the sandbox, both phases should return 200.
-    """
     missing = [k for k, v in {
         "PHONE_NUMBER_ID": PHONE_ID,
         "TARGET_MOBILE":   TARGET_PHONE,
@@ -228,8 +197,6 @@ def push_whatsapp_notification(text_content: str) -> bool:
 
     phase1_ok = _send_hello_world()
     if not phase1_ok:
-        # Do not attempt Phase 2 — if the template call failed due to a
-        # token/permissions/phone-ID problem, free-form will fail identically.
         print("[WhatsApp] Skipping Phase 2 due to Phase 1 failure.")
         return False
 
@@ -237,7 +204,7 @@ def push_whatsapp_notification(text_content: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Vercel Serverless Handler  (unchanged from previous revision)
+# Vercel Serverless Handler
 # ---------------------------------------------------------------------------
 class handler(BaseHTTPRequestHandler):
 
